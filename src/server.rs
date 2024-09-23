@@ -17,17 +17,13 @@ fn handle_connection<T: Read + Write>(mut stream: T) -> io::Result<usize> {
     let request_api_version = request.get_i16();
     let correlation_id: i32 = request.get_i32();
 
-    if !(0 <= request_api_version && request_api_version <= 4) {
-        let mut response: Vec<u8> = Vec::with_capacity(8);
-        response.put_i32(0);
-        response.put_i32(correlation_id);
-        response.put_i16(35);
-        return stream.write(&response);
-    }
-
     let mut response: Vec<u8> = Vec::with_capacity(8);
     response.put_i32(0);
     response.put_i32(correlation_id);
+
+    if !(0 <= request_api_version && request_api_version <= 4) {
+        response.put_i16(ErrorCode::UnsupportedVersion as i16);
+    }
 
     stream.write(&response)
 }
@@ -48,6 +44,11 @@ pub fn start_server(address: &str) -> io::Result<()> {
         }
     }
     Ok(())
+}
+
+#[repr(i16)]
+enum ErrorCode {
+    UnsupportedVersion = 35,
 }
 
 #[cfg(test)]
