@@ -1,0 +1,2 @@
+- Create helpers for server.rs' tests
+- Reorganize methods in server.rs for readability
