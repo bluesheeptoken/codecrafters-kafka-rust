@@ -1,7 +1,7 @@
 use model::RequestHeader;
 use tokio::{
     io::{AsyncRead, AsyncReadExt, AsyncWriteExt},
-    net::TcpListener,
+    net::{TcpListener, TcpStream},
 };
 
 use std::error::Error;
@@ -14,13 +14,24 @@ pub async fn start_server(address: &str) -> Result<(), Box<dyn Error>> {
     let listener = TcpListener::bind(address).await.unwrap();
     println!("Server listening on {}", address);
 
-    let (mut stream, _) = listener.accept().await?;
-
     loop {
-        let request = parse_request(&mut stream).await?;
-        let response: Vec<u8> = handle_request(&request);
-        stream.write(&response[..]).await?;
+        let (mut stream, _) = listener.accept().await?;
+
+        tokio::spawn(async move {
+            loop {
+                if let Err(e) = process(&mut stream).await {
+                    eprintln!("Error processing connection: {}", e)
+                }
+            }
+        });
     }
+}
+
+async fn process(stream: &mut TcpStream) -> Result<(), Box<dyn Error>> {
+    let request = parse_request(stream).await?;
+    let response: Vec<u8> = handle_request(&request);
+    stream.write(&response[..]).await?;
+    Ok(())
 }
 
 async fn parse_request<R>(stream: &mut R) -> Result<RequestHeader, Box<dyn Error>>
