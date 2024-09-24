@@ -1,4 +1,4 @@
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct RequestHeader {
     pub request_api_key: i16,
     pub request_api_version: i16,

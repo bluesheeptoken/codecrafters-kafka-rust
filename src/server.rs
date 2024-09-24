@@ -1,35 +1,38 @@
-use std::io::{self, Read, Write};
-use std::net::TcpListener;
+use model::RequestHeader;
+use tokio::{
+    io::{AsyncRead, AsyncReadExt, AsyncWriteExt},
+    net::TcpListener,
+};
+
+use std::error::Error;
 
 use bytes::{Buf, BufMut};
 
 mod model;
 
-pub fn start_server(address: &str) -> io::Result<()> {
-    let listener = TcpListener::bind(address)?;
+pub async fn start_server(address: &str) -> Result<(), Box<dyn Error>> {
+    let listener = TcpListener::bind(address).await.unwrap();
     println!("Server listening on {}", address);
 
-    for stream in listener.incoming() {
-        match stream {
-            Ok(s) => {
-                println!("Accepted new connection");
-                handle_connection(s)?;
-            }
-            Err(e) => {
-                println!("Error: {}", e);
-            }
-        }
+    let (mut stream, _) = listener.accept().await?;
+
+    loop {
+        let request = parse_request(&mut stream).await?;
+        let response: Vec<u8> = handle_request(&request);
+        stream.write(&response[..]).await?;
     }
-    Ok(())
 }
 
-fn handle_connection<T: Read + Write>(mut stream: T) -> io::Result<usize> {
+async fn parse_request<R>(stream: &mut R) -> Result<RequestHeader, Box<dyn Error>>
+where
+    R: AsyncRead + Unpin,
+{
     let mut len = [0; 4];
-    stream.read_exact(&mut len)?;
+    stream.read_exact(&mut len).await?;
     let len = i32::from_be_bytes(len) as usize;
 
     let mut request = vec![0; len];
-    stream.read_exact(&mut request)?;
+    stream.read_exact(&mut request).await?;
 
     let mut request = request.as_slice();
 
@@ -38,29 +41,41 @@ fn handle_connection<T: Read + Write>(mut stream: T) -> io::Result<usize> {
         request_api_version: request.get_i16(),
         correlation_id: request.get_i32(),
     };
+    Ok(request_header)
+}
 
+fn handle_request(request: &RequestHeader) -> Vec<u8> {
     let mut response: Vec<u8> = vec![];
-    let mut data: Vec<u8> = vec![];
-    if request_header.request_api_key == ApiKey::Versions as i16 {
-        data = api_version_response_data();
+
+    let error_code = if !request.is_request_api_version_valid() {
+        ErrorCode::UnsupportedVersion
+    } else {
+        ErrorCode::Ok
+    };
+
+    if error_code != ErrorCode::Ok {
+        response.put_i32(4 + 2); // correlation_id and error_code
+        response.put_i32(request.correlation_id);
+        response.put_i16(error_code as i16);
+        return response;
     }
+
+    let data = if request.request_api_key == ApiKey::Versions as i16 {
+        api_version_response_data()
+    } else {
+        vec![]
+    };
 
     let length = 4 + 2 + data.len(); // correlation id + error code
     response.put_i32(length as i32);
-    response.put_i32(request_header.correlation_id);
-
-    if !request_header.is_request_api_version_valid() {
-        response.put_i16(ErrorCode::UnsupportedVersion as i16);
-    } else {
-        response.put_i16(ErrorCode::Ok as i16);
-    }
-
+    response.put_i32(request.correlation_id);
+    response.put_i16(error_code as i16);
     response.put(&data[..]);
-
-    stream.write(&response)
+    response
 }
 
 // https://kafka.apache.org/protocol#The_Messages_ApiVersions
+// mostly a constant for now, because we don't parse request
 fn api_version_response_data() -> Vec<u8> {
     let mut data: Vec<u8> = vec![];
     let number_of_tagged_fields = 2; // verint offset by 1 to reserve 0 for null values
@@ -75,6 +90,7 @@ fn api_version_response_data() -> Vec<u8> {
 }
 
 #[repr(i16)]
+#[derive(PartialEq)]
 enum ErrorCode {
     Ok = 0,
     UnsupportedVersion = 35,
@@ -85,42 +101,36 @@ enum ApiKey {
     Versions = 18,
 }
 
-//TODO: refacto how ErrorCode is injected (should it even be injected this way or hardcoded?)
+// //TODO: refacto how ErrorCode is injected (should it even be injected this way or hardcoded?)
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::io::Cursor;
 
     #[test]
-    fn test_handle_connection() {
-        let mut request = RequestBuilder::new().with_correlation_id(311908132).build();
-
-        let result = handle_connection(&mut request);
-
-        assert!(result.is_ok());
-        assert_eq!(result.unwrap(), 10);
+    fn test_handle_request() {
+        let result = handle_request(&RequestHeader {
+            request_api_key: 0,
+            request_api_version: 0,
+            correlation_id: 311908132,
+        });
 
         assert_eq!(
-            &request.get_ref()[12..22],
-            &vec![0, 0, 0, 6, 18, 151, 87, 36, 0, ErrorCode::Ok as u8][..]
+            result,
+            vec![0, 0, 0, 6, 18, 151, 87, 36, 0, ErrorCode::Ok as u8]
         );
     }
 
     #[test]
-    fn test_handle_connection_with_api_versions_request() {
-        let mut request = RequestBuilder::new()
-            .with_correlation_id(311908132)
-            .with_request_api_key(ApiKey::Versions as i16)
-            .build();
-
-        let result = handle_connection(&mut request);
-
-        assert!(result.is_ok());
-        assert_eq!(result.unwrap(), 23);
+    fn test_handle_request_with_api_versions_request() {
+        let result = handle_request(&RequestHeader {
+            request_api_key: ApiKey::Versions as i16,
+            request_api_version: 0,
+            correlation_id: 311908132,
+        });
 
         assert_eq!(
-            &request.get_ref()[12..35],
-            &vec![
+            result,
+            vec![
                 0,
                 0,
                 0,
@@ -144,25 +154,21 @@ mod tests {
                 0,
                 0,
                 0,
-            ][..]
+            ]
         );
     }
 
     #[test]
     fn test_handle_connection_should_fail_with_body_35_if_the_api_version_is_incorrect() {
-        let mut request = RequestBuilder::new()
-            .with_correlation_id(311908132)
-            .with_request_api_version(-1)
-            .build();
-
-        let result = handle_connection(&mut request);
-
-        assert!(result.is_ok());
-        assert_eq!(result.unwrap(), 10);
+        let result = handle_request(&RequestHeader {
+            request_api_key: ApiKey::Versions as i16,
+            request_api_version: -1,
+            correlation_id: 311908132,
+        });
 
         assert_eq!(
-            &request.get_ref()[12..22],
-            &vec![
+            result,
+            vec![
                 0,
                 0,
                 0,
@@ -173,45 +179,38 @@ mod tests {
                 36,
                 0,
                 ErrorCode::UnsupportedVersion as u8
-            ][..]
+            ]
         );
     }
 
-    struct RequestBuilder {
-        request_api_key: i16,
-        request_api_version: i16,
-        correlation_id: i32,
-    }
-    impl RequestBuilder {
-        fn new() -> RequestBuilder {
-            RequestBuilder {
-                request_api_key: 0,
-                request_api_version: 0,
-                correlation_id: 0,
+    #[tokio::test]
+    async fn test_parse_request() {
+        let (mut client, mut server) = tokio::io::duplex(512);
+
+        let request_body_length = 8;
+        let request_api_key: i16 = 18;
+        let request_api_version: i16 = 2;
+        let correlation_id: i32 = 42;
+
+        let mut request_data = vec![];
+        request_data.put_i32(request_body_length as i32);
+        request_data.put_i16(request_api_key);
+        request_data.put_i16(request_api_version);
+        request_data.put_i32(correlation_id);
+
+        client.write_all(&request_data).await.unwrap();
+        client.shutdown().await.unwrap();
+
+        // Parse the request on the "server" side
+        let request_header = parse_request(&mut server).await.unwrap();
+
+        assert_eq!(
+            request_header,
+            RequestHeader {
+                request_api_key: request_api_key,
+                request_api_version: request_api_version,
+                correlation_id: correlation_id,
             }
-        }
-
-        fn with_request_api_key(&mut self, request_api_key: i16) -> &mut RequestBuilder {
-            self.request_api_key = request_api_key;
-            self
-        }
-
-        fn with_request_api_version(&mut self, request_api_version: i16) -> &mut RequestBuilder {
-            self.request_api_version = request_api_version;
-            self
-        }
-        fn with_correlation_id(&mut self, correlation_id: i32) -> &mut RequestBuilder {
-            self.correlation_id = correlation_id;
-            self
-        }
-
-        fn build(&self) -> Cursor<Vec<u8>> {
-            let mut request: Vec<u8> = vec![];
-            request.put_i32(8);
-            request.put_i16(self.request_api_key);
-            request.put_i16(self.request_api_version);
-            request.put_i32(self.correlation_id);
-            Cursor::new(request)
-        }
+        );
     }
 }
