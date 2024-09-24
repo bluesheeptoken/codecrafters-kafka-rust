@@ -89,7 +89,18 @@ mod tests {
 
         assert_eq!(
             &request.get_ref()[12..22],
-            &vec![0, 0, 0, 0, 18, 151, 87, 36, 0, 35][..]
+            &vec![
+                0,
+                0,
+                0,
+                0,
+                18,
+                151,
+                87,
+                36,
+                0,
+                ErrorCode::UnsupportedVersion as u8
+            ][..]
         );
     }
 
