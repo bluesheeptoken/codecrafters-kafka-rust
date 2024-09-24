@@ -3,6 +3,8 @@ use std::net::TcpListener;
 
 use bytes::{Buf, BufMut};
 
+mod model;
+
 fn handle_connection<T: Read + Write>(mut stream: T) -> io::Result<usize> {
     let mut len = [0; 4];
     stream.read_exact(&mut len)?;
@@ -13,15 +15,17 @@ fn handle_connection<T: Read + Write>(mut stream: T) -> io::Result<usize> {
 
     let mut request = request.as_slice();
 
-    let _request_api_key = request.get_i16();
-    let request_api_version = request.get_i16();
-    let correlation_id: i32 = request.get_i32();
+    let request_header = model::RequestHeader {
+        _request_api_key: request.get_i16(),
+        request_api_version: request.get_i16(),
+        correlation_id: request.get_i32(),
+    };
 
     let mut response: Vec<u8> = Vec::with_capacity(8);
     response.put_i32(0);
-    response.put_i32(correlation_id);
+    response.put_i32(request_header.correlation_id);
 
-    if !(0 <= request_api_version && request_api_version <= 4) {
+    if !request_header.is_request_api_version_valid() {
         response.put_i16(ErrorCode::UnsupportedVersion as i16);
     }
 
