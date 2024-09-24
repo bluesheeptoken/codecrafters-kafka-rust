@@ -178,7 +178,6 @@ mod tests {
     }
 
     struct RequestBuilder {
-        message_length_after_header: usize,
         request_api_key: i16,
         request_api_version: i16,
         correlation_id: i32,
@@ -186,19 +185,10 @@ mod tests {
     impl RequestBuilder {
         fn new() -> RequestBuilder {
             RequestBuilder {
-                message_length_after_header: 0,
                 request_api_key: 0,
                 request_api_version: 0,
                 correlation_id: 0,
             }
-        }
-
-        fn with_message_length_after_header(
-            &mut self,
-            message_length_after_header: usize,
-        ) -> &mut RequestBuilder {
-            self.message_length_after_header = message_length_after_header;
-            self
         }
 
         fn with_request_api_key(&mut self, request_api_key: i16) -> &mut RequestBuilder {
@@ -217,11 +207,10 @@ mod tests {
 
         fn build(&self) -> Cursor<Vec<u8>> {
             let mut request: Vec<u8> = vec![];
-            request.put_i32(self.message_length_after_header as i32 + 8);
+            request.put_i32(8);
             request.put_i16(self.request_api_key);
             request.put_i16(self.request_api_version);
             request.put_i32(self.correlation_id);
-            request.put_bytes(0, self.message_length_after_header);
             Cursor::new(request)
         }
     }
