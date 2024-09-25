@@ -43,7 +43,7 @@ async fn process(stream: &mut TcpStream) -> Result<(), Box<dyn Error>> {
 fn handle_request(request: &Request) -> Vec<u8> {
     let mut response: Vec<u8> = vec![];
 
-    let error_code = if !request.is_request_api_version_valid() {
+    let error_code = if !request.is_request_api_version_valid(request.header.request_api_version) {
         ErrorCode::UnsupportedVersion
     } else {
         ErrorCode::Ok
@@ -96,7 +96,7 @@ mod tests {
         let result = handle_request(&Request {
             header: RequestHeader {
                 request_api_key: ApiKey::Versions,
-                request_api_version: 0,
+                request_api_version: 4,
                 correlation_id: 311908132,
             },
             body: Box::new(ApiVersionsRequest {}),
@@ -105,7 +105,7 @@ mod tests {
         assert_eq!(
             result,
             vec![
-                0, 0, 0, 26, 18, 151, 87, 36, 0, 0, 3, 0, 1, 0, 0, 0, 16, 0, 0, 18, 0, 1, 0, 18, 0,
+                0, 0, 0, 26, 18, 151, 87, 36, 0, 0, 3, 0, 1, 0, 0, 0, 16, 0, 0, 18, 0, 1, 0, 4, 0,
                 0, 0, 0, 0, 0
             ]
         );

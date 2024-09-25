@@ -23,10 +23,21 @@ impl ApiKey {
     }
 }
 
-struct ApiKeyVersions {
+// TODO: should not be public
+pub struct ApiKeyVersions {
     pub api_key: ApiKey,
     pub min_version: i16,
     pub max_version: i16,
+}
+
+impl ApiKeyVersions {
+    pub fn is_version_valid(&self, version: i16) -> bool {
+        dbg!(version);
+        dbg!(self.min_version);
+        dbg!(self.max_version);
+        dbg!(self.api_key);
+        self.min_version <= version && version <= self.max_version
+    }
 }
 
 pub enum ApiKeyVariant {
@@ -35,17 +46,17 @@ pub enum ApiKeyVariant {
 }
 
 impl ApiKeyVariant {
-    fn versions(&self) -> ApiKeyVersions {
+    pub fn versions(&self) -> ApiKeyVersions {
         match self {
+            ApiKeyVariant::Versions => ApiKeyVersions {
+                api_key: ApiKey::Versions,
+                min_version: 1,
+                max_version: 4,
+            },
             ApiKeyVariant::Fetch => ApiKeyVersions {
                 api_key: ApiKey::Fetch,
                 min_version: 0,
                 max_version: 16,
-            },
-            ApiKeyVariant::Versions => ApiKeyVersions {
-                api_key: ApiKey::Versions,
-                min_version: 1,
-                max_version: 18,
             },
         }
     }
