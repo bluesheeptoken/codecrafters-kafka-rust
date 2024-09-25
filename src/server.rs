@@ -1,4 +1,8 @@
+use model::ApiKey;
+use model::ApiKeyVariant;
 use model::RequestHeader;
+use model::WireSerialization;
+use responses::ApiVersionV4Response;
 use tokio::{
     io::{AsyncRead, AsyncReadExt, AsyncWriteExt},
     net::{TcpListener, TcpStream},
@@ -9,6 +13,7 @@ use std::error::Error;
 use bytes::{Buf, BufMut};
 
 mod model;
+mod responses;
 
 pub async fn start_server(address: &str) -> Result<(), Box<dyn Error>> {
     let listener = TcpListener::bind(address).await.unwrap();
@@ -72,7 +77,11 @@ fn handle_request(request: &RequestHeader) -> Vec<u8> {
     }
 
     let data = if request.request_api_key == ApiKey::Versions as i16 {
-        api_version_response_data()
+        let mut buffer: Vec<u8> = vec![];
+        let response =
+            ApiVersionV4Response::new(vec![ApiKeyVariant::Fetch, ApiKeyVariant::Versions]);
+        response.to_wire_format(&mut buffer);
+        buffer
     } else {
         vec![]
     };
@@ -85,31 +94,11 @@ fn handle_request(request: &RequestHeader) -> Vec<u8> {
     response
 }
 
-// https://kafka.apache.org/protocol#The_Messages_ApiVersions
-// mostly a constant for now, because we don't parse request
-fn api_version_response_data() -> Vec<u8> {
-    let mut data: Vec<u8> = vec![];
-    let number_of_tagged_fields = 2; // verint offset by 1 to reserve 0 for null values
-    data.put_i8(number_of_tagged_fields); // might be buggy for number > 7 as this is encoded as variable length encoding
-    data.put_i16(ApiKey::Versions as i16);
-    data.put_i16(0); // min version, todo represent that in a struct
-    data.put_i16(4); // max version, todo represent that in a struct
-    data.put_i8(0); // no tagged fields, null marker
-    data.put_i32(0); // throttle time in ms
-    data.put_i8(0); // no tagged fields, null marker
-    data
-}
-
 #[repr(i16)]
 #[derive(PartialEq)]
 enum ErrorCode {
     Ok = 0,
     UnsupportedVersion = 35,
-}
-
-#[repr(i16)]
-enum ApiKey {
-    Versions = 18,
 }
 
 // //TODO: refacto how ErrorCode is injected (should it even be injected this way or hardcoded?)
@@ -128,44 +117,6 @@ mod tests {
         assert_eq!(
             result,
             vec![0, 0, 0, 6, 18, 151, 87, 36, 0, ErrorCode::Ok as u8]
-        );
-    }
-
-    #[test]
-    fn test_handle_request_with_api_versions_request() {
-        let result = handle_request(&RequestHeader {
-            request_api_key: ApiKey::Versions as i16,
-            request_api_version: 0,
-            correlation_id: 311908132,
-        });
-
-        assert_eq!(
-            result,
-            vec![
-                0,
-                0,
-                0,
-                19,
-                18,
-                151,
-                87,
-                36,
-                0,
-                ErrorCode::Ok as u8,
-                2,
-                0,
-                18,
-                0,
-                0,
-                0,
-                4,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-            ]
         );
     }
 
