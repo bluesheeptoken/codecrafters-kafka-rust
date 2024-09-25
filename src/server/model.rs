@@ -1,29 +1,28 @@
 use bytes::BufMut;
 
-// TODO: move that to a specific file once we implement request parsing
-#[derive(Debug, PartialEq)]
-pub struct RequestHeader {
-    pub request_api_key: i16,
-    pub request_api_version: i16,
-    pub correlation_id: i32,
-}
-
-impl RequestHeader {
-    pub fn is_request_api_version_valid(&self) -> bool {
-        self.request_api_version >= 0 && self.request_api_version <= 4
-    }
-}
-
 pub trait WireSerialization {
     fn to_wire_format(&self, buffer: &mut Vec<u8>) -> ();
 }
 
+// TODO: should fail
 #[repr(i16)]
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug, PartialEq)]
 pub enum ApiKey {
     Fetch = 1,
     Versions = 18,
+    Unsupported = -1,
 }
+
+impl ApiKey {
+    pub fn parse(value: i16) -> ApiKey {
+        match value {
+            1 => ApiKey::Fetch,
+            18 => ApiKey::Versions,
+            _ => ApiKey::Unsupported,
+        }
+    }
+}
+
 struct ApiKeyVersions {
     pub api_key: ApiKey,
     pub min_version: i16,
