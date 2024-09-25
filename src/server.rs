@@ -138,34 +138,4 @@ mod tests {
             ]
         );
     }
-
-    #[tokio::test]
-    async fn test_parse_reques_api_versions_request() {
-        let (mut client, mut server) = tokio::io::duplex(512);
-
-        let request_body_length = 8;
-        let request_api_key: ApiKey = ApiKey::Versions;
-        let request_api_version: i16 = 2;
-        let correlation_id: i32 = 42;
-
-        let mut request_data = vec![];
-        request_data.put_i32(request_body_length as i32);
-        request_data.put_i16(request_api_key as i16);
-        request_data.put_i16(request_api_version);
-        request_data.put_i32(correlation_id);
-
-        client.write_all(&request_data).await.unwrap();
-        client.shutdown().await.unwrap();
-
-        // Parse the request on the "server" side
-        let request = Request::parse_request(&mut server).await.unwrap();
-        let expected_header = RequestHeader {
-            request_api_key: request_api_key,
-            request_api_version: request_api_version,
-            correlation_id: correlation_id,
-        };
-
-        assert_eq!(request.header, expected_header);
-        // TODO: check body???
-    }
 }

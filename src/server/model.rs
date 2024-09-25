@@ -1,24 +1,23 @@
 use bytes::BufMut;
+use std::error::Error;
 
 pub trait WireSerialization {
     fn to_wire_format(&self, buffer: &mut Vec<u8>) -> ();
 }
 
-// TODO: should fail
 #[repr(i16)]
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub enum ApiKey {
     Fetch = 1,
     Versions = 18,
-    Unsupported = -1,
 }
 
 impl ApiKey {
-    pub fn parse(value: i16) -> ApiKey {
+    pub fn parse(value: i16) -> Result<ApiKey, Box<dyn Error>> {
         match value {
-            1 => ApiKey::Fetch,
-            18 => ApiKey::Versions,
-            _ => ApiKey::Unsupported,
+            1 => Ok(ApiKey::Fetch),
+            18 => Ok(ApiKey::Versions),
+            _ => Err(Box::from("api key not recognized")),
         }
     }
 }
@@ -32,10 +31,6 @@ pub struct ApiKeyVersions {
 
 impl ApiKeyVersions {
     pub fn is_version_valid(&self, version: i16) -> bool {
-        dbg!(version);
-        dbg!(self.min_version);
-        dbg!(self.max_version);
-        dbg!(self.api_key);
         self.min_version <= version && version <= self.max_version
     }
 }
