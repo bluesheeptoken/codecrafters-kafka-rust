@@ -66,3 +66,10 @@ impl WireSerialization for ApiKeyVariant {
         buffer.put_i8(0); // no tagged fields, null marker
     }
 }
+
+#[repr(i16)]
+#[derive(PartialEq)]
+enum ErrorCode {
+    Ok = 0,
+    UnsupportedVersion = 35,
+}

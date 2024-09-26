@@ -2,6 +2,7 @@ use super::model::ApiKeyVariant;
 use super::model::WireSerialization;
 use bytes::BufMut;
 
+//TODO: error code here?
 pub struct ApiVersionV4Response {
     api_key_versions: Vec<ApiKeyVariant>,
     throttle_time_in_ms: i32,
@@ -30,6 +31,30 @@ impl WireSerialization for ApiVersionV4Response {
     }
 }
 
+pub struct FetchV16Response {
+    throttle_time_in_ms: i32,
+    session_id: i32,
+}
+
+impl FetchV16Response {
+    pub fn new() -> FetchV16Response {
+        FetchV16Response {
+            throttle_time_in_ms: 0,
+            session_id: 0,
+        }
+    }
+}
+
+impl WireSerialization for FetchV16Response {
+    // https://kafka.apache.org/protocol.html#The_Messages_Fetch
+    fn to_wire_format(&self, buffer: &mut Vec<u8>) -> () {
+        buffer.put_i32(self.throttle_time_in_ms);
+        buffer.put_i16(0); // error code, 0 for now
+        buffer.put_i32(self.session_id);
+        buffer.put_i8(0); // no tagged fields, null marker
+    }
+}
+
 mod tests {
     use super::*;
 
@@ -44,5 +69,14 @@ mod tests {
             buffer,
             vec![3, 0, 1, 0, 0, 0, 16, 0, 0, 18, 0, 1, 0, 4, 0, 0, 0, 0, 0, 0]
         );
+    }
+
+    #[test]
+    fn test_fetch_response_to_wire_format() {
+        let mut buffer = vec![];
+        let response = FetchV16Response::new();
+        response.to_wire_format(&mut buffer);
+
+        assert_eq!(buffer, vec![0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
     }
 }

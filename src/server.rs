@@ -3,6 +3,7 @@ use model::ApiKeyVariant;
 use model::WireSerialization;
 use requests::Request;
 use responses::ApiVersionV4Response;
+use responses::FetchV16Response;
 use tokio::{
     io::AsyncWriteExt,
     net::{TcpListener, TcpStream},
@@ -64,7 +65,12 @@ fn handle_request(request: &Request) -> Vec<u8> {
             response.to_wire_format(&mut buffer);
             buffer
         }
-        _ => vec![],
+        ApiKey::Fetch => {
+            let mut buffer: Vec<u8> = vec![];
+            let response = FetchV16Response::new();
+            response.to_wire_format(&mut buffer);
+            buffer
+        }
     };
 
     let length = 4 + 2 + data.len(); // correlation id + error code
