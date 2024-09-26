@@ -1,9 +1,8 @@
-use model::ApiKey;
-use model::ApiKeyVariant;
 use model::WireSerialization;
 use requests::Request;
-use responses::ApiVersionV4Response;
-use responses::FetchV16Response;
+use requests::RequestBody;
+use responses::api_versions::ApiVersionV4Response;
+use responses::fetch;
 use tokio::{
     io::AsyncWriteExt,
     net::{TcpListener, TcpStream},
@@ -57,32 +56,31 @@ fn handle_request(request: &Request) -> Vec<u8> {
         return response;
     }
 
-    let data = match request.header.request_api_key {
-        ApiKey::Versions => {
+    //TODO: some copy paste that could be handled generically
+    let data = match &request.body {
+        RequestBody::ApiVersions(body) => {
             let mut buffer: Vec<u8> = vec![];
-            let response =
-                ApiVersionV4Response::new(vec![ApiKeyVariant::Fetch, ApiKeyVariant::Versions]);
+            let response = ApiVersionV4Response::process_request(body, error_code);
             response.to_wire_format(&mut buffer);
             buffer
         }
-        ApiKey::Fetch => {
+        RequestBody::Fetch(body) => {
             let mut buffer: Vec<u8> = vec![];
-            let response = FetchV16Response::new();
+            let response = fetch::FetchV16Response::process_request(&body);
             response.to_wire_format(&mut buffer);
             buffer
         }
     };
 
-    let length = 4 + 2 + data.len(); // correlation id + error code
+    let length = 4 + data.len(); // correlation id + error code
     response.put_i32(length as i32);
     response.put_i32(request.header.correlation_id);
-    response.put_i16(error_code as i16);
     response.put(&data[..]);
     response
 }
 
 #[repr(i16)]
-#[derive(PartialEq)]
+#[derive(Copy, Clone, PartialEq)]
 enum ErrorCode {
     Ok = 0,
     UnsupportedVersion = 35,
@@ -95,6 +93,7 @@ mod tests {
 
     use super::*;
 
+    use super::model::ApiKey;
     use super::requests::RequestHeader;
 
     #[test]
@@ -105,7 +104,7 @@ mod tests {
                 request_api_version: 4,
                 correlation_id: 311908132,
             },
-            body: Box::new(ApiVersionsRequest {}),
+            body: requests::RequestBody::ApiVersions(ApiVersionsRequest {}),
         });
 
         assert_eq!(
@@ -125,7 +124,7 @@ mod tests {
                 request_api_version: -1,
                 correlation_id: 311908132,
             },
-            body: Box::new(ApiVersionsRequest {}),
+            body: requests::RequestBody::ApiVersions(ApiVersionsRequest {}),
         });
 
         assert_eq!(

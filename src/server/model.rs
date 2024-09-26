@@ -67,9 +67,9 @@ impl WireSerialization for ApiKeyVariant {
     }
 }
 
-#[repr(i16)]
-#[derive(PartialEq)]
-enum ErrorCode {
-    Ok = 0,
-    UnsupportedVersion = 35,
+type Uuid = u128;
+
+#[derive(Debug, PartialEq)]
+pub struct Topic {
+    pub id: Uuid,
 }
