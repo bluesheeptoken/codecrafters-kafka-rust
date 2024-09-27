@@ -61,7 +61,7 @@ impl Request {
     }
 }
 
-pub trait RequestParser: Send {
+pub trait RequestParser {
     fn parse(buffer: &mut Cursor<Vec<u8>>) -> Self
     where
         Self: Sized;
