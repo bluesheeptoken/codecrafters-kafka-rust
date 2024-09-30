@@ -35,6 +35,7 @@ impl ApiKeyVersions {
     }
 }
 
+#[derive(Debug, PartialEq)]
 pub enum ApiKeyVariant {
     Fetch,
     Versions,

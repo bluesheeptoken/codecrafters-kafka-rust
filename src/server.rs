@@ -1,4 +1,4 @@
-use model::WireSerialization;
+use crate::request_handler;
 use requests::HasRequestHeader;
 use requests::Request;
 use tokio::{
@@ -6,13 +6,15 @@ use tokio::{
     net::{TcpListener, TcpStream},
 };
 
+use model::WireSerialization;
+
 use std::error::Error;
 
 use bytes::BufMut;
 
-mod model;
-mod requests;
-mod responses;
+pub mod model;
+pub mod requests;
+pub mod responses;
 
 pub async fn start_server(address: &str) -> Result<(), Box<dyn Error>> {
     let listener = TcpListener::bind(address).await.unwrap();
@@ -47,7 +49,6 @@ fn handle_request(request: &Request) -> Vec<u8> {
         ErrorCode::Ok
     };
 
-    // TODO: move this part to the API_VERSIONS part, because it only happens with API_VERSIONS
     if error_code != ErrorCode::Ok {
         response.put_i32(4 + 2); // correlation_id and error_code
         response.put_i32(request.header().correlation_id);
@@ -56,9 +57,7 @@ fn handle_request(request: &Request) -> Vec<u8> {
     }
 
     let mut data: Vec<u8> = vec![];
-    responses::process_request(request, error_code)
-        .unwrap()
-        .to_wire_format(&mut data);
+    request_handler::process_request(request).to_wire_format(&mut data);
 
     let length = 4 + data.len(); // correlation id + error code
     response.put_i32(length as i32);

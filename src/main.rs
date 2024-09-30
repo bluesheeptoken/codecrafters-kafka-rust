@@ -1,3 +1,4 @@
+mod request_handler;
 mod server;
 use std::error::Error;
 #[tokio::main]
