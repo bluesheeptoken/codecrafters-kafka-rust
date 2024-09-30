@@ -1,8 +1,6 @@
 use model::WireSerialization;
+use requests::HasRequestHeader;
 use requests::Request;
-use requests::RequestBody;
-use responses::api_versions::ApiVersionV4Response;
-use responses::fetch;
 use tokio::{
     io::AsyncWriteExt,
     net::{TcpListener, TcpStream},
@@ -43,53 +41,43 @@ async fn process(stream: &mut TcpStream) -> Result<(), Box<dyn Error>> {
 fn handle_request(request: &Request) -> Vec<u8> {
     let mut response: Vec<u8> = vec![];
 
-    let error_code = if !request.is_request_api_version_valid(request.header.request_api_version) {
+    let error_code = if !request.is_request_api_version_header_valid() {
         ErrorCode::UnsupportedVersion
     } else {
         ErrorCode::Ok
     };
 
+    // TODO: move this part to the API_VERSIONS part, because it only happens with API_VERSIONS
     if error_code != ErrorCode::Ok {
         response.put_i32(4 + 2); // correlation_id and error_code
-        response.put_i32(request.header.correlation_id);
+        response.put_i32(request.header().correlation_id);
         response.put_i16(error_code as i16);
         return response;
     }
 
-    //TODO: some copy paste that could be handled generically
-    let data = match &request.body {
-        RequestBody::ApiVersions(body) => {
-            let mut buffer: Vec<u8> = vec![];
-            let response = ApiVersionV4Response::process_request(body, error_code);
-            response.to_wire_format(&mut buffer);
-            buffer
-        }
-        RequestBody::Fetch(body) => {
-            let mut buffer: Vec<u8> = vec![];
-            let response = fetch::FetchV16Response::process_request(&body);
-            response.to_wire_format(&mut buffer);
-            buffer
-        }
-    };
+    let mut data: Vec<u8> = vec![];
+    responses::process_request(request, error_code)
+        .unwrap()
+        .to_wire_format(&mut data);
 
     let length = 4 + data.len(); // correlation id + error code
     response.put_i32(length as i32);
-    response.put_i32(request.header.correlation_id);
+    response.put_i32(request.header().correlation_id);
     response.put(&data[..]);
     response
 }
 
 #[repr(i16)]
-#[derive(Copy, Clone, PartialEq)]
+#[derive(Copy, Clone, Debug, PartialEq)]
 enum ErrorCode {
     Ok = 0,
     UnsupportedVersion = 35,
 }
 
-// //TODO: refacto how ErrorCode is injected (should it even be injected this way or hardcoded?)
 #[cfg(test)]
 mod tests {
-    use requests::ApiVersionsRequest;
+
+    use requests::ApiVersions;
 
     use super::*;
 
@@ -98,14 +86,13 @@ mod tests {
 
     #[test]
     fn test_handle_versions_request() {
-        let result = handle_request(&Request {
+        let result = handle_request(&requests::Request::ApiVersions(ApiVersions {
             header: RequestHeader {
                 request_api_key: ApiKey::Versions,
                 request_api_version: 4,
                 correlation_id: 311908132,
             },
-            body: requests::RequestBody::ApiVersions(ApiVersionsRequest {}),
-        });
+        }));
 
         assert_eq!(
             result,
@@ -118,14 +105,13 @@ mod tests {
 
     #[test]
     fn test_handle_connection_should_fail_with_body_35_if_the_api_version_is_incorrect() {
-        let result = handle_request(&Request {
+        let result = handle_request(&&requests::Request::ApiVersions(ApiVersions {
             header: RequestHeader {
                 request_api_key: ApiKey::Versions,
                 request_api_version: -1,
                 correlation_id: 311908132,
             },
-            body: requests::RequestBody::ApiVersions(ApiVersionsRequest {}),
-        });
+        }));
 
         assert_eq!(
             result,

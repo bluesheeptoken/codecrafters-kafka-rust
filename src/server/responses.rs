@@ -1,36 +1,91 @@
-use super::model::ApiKeyVariant;
+use super::model;
 use super::model::WireSerialization;
-use super::requests::{ApiVersionsRequest, FetchRequest};
+use super::requests;
+
+pub enum Response {
+    ApiVersions(ApiVersions),
+    Fetch(Fetch),
+}
+
+impl WireSerialization for Response {
+    fn to_wire_format(&self, buffer: &mut Vec<u8>) {
+        match self {
+            Response::ApiVersions(api_versions_response) => {
+                Ok(api_versions_response).to_wire_format(buffer)
+            }
+            Response::Fetch(fetch_response) => fetch_response.to_wire_format(buffer),
+        }
+    }
+}
+
+pub struct Fetch {
+    throttle_time_in_ms: i32,
+    session_id: i32,
+    topics: Vec<fetch::FetchTopicResponse>,
+}
+
+pub struct ApiVersions {
+    api_key_versions: Vec<model::ApiKeyVariant>,
+    throttle_time_in_ms: i32,
+}
+
+use crate::server::ErrorCode;
+pub fn process_request(
+    request: &requests::Request,
+    error_code: ErrorCode,
+) -> Result<Response, ErrorCode> {
+    Ok(match request {
+        requests::Request::ApiVersions(api_versions_request) => Response::ApiVersions(
+            process_api_versions_request(api_versions_request, error_code)?,
+        ),
+        requests::Request::Fetch(fetch_request) => {
+            Response::Fetch(process_fetch_request(fetch_request))
+        }
+    })
+}
+
+fn process_api_versions_request(
+    _request: &requests::ApiVersions,
+    error_code: ErrorCode,
+) -> Result<ApiVersions, ErrorCode> {
+    if error_code != ErrorCode::Ok {
+        Err(error_code)
+    } else {
+        Ok(ApiVersions {
+            api_key_versions: vec![
+                super::model::ApiKeyVariant::Fetch,
+                super::model::ApiKeyVariant::Versions,
+            ],
+            throttle_time_in_ms: 0,
+        })
+    }
+}
+
+fn process_fetch_request(request: &requests::Fetch) -> Fetch {
+    Fetch {
+        throttle_time_in_ms: 0,
+        session_id: 0,
+        topics: request
+            .topics
+            .iter()
+            .map(|topic| fetch::FetchTopicResponse { topic_id: topic.id })
+            .collect(),
+    }
+}
 
 pub mod api_versions {
     use bytes::BufMut;
 
     use crate::server::ErrorCode;
-    pub struct ApiVersionV4Response {
-        pub api_key_versions: Vec<super::ApiKeyVariant>,
-        pub throttle_time_in_ms: i32,
-    }
 
-    impl ApiVersionV4Response {
-        pub fn process_request(
-            _request: &super::ApiVersionsRequest,
-            error_code: ErrorCode,
-        ) -> Result<ApiVersionV4Response, ErrorCode> {
-            if error_code != ErrorCode::Ok {
-                Err(error_code)
-            } else {
-                Ok(ApiVersionV4Response {
-                    api_key_versions: vec![
-                        super::ApiKeyVariant::Fetch,
-                        super::ApiKeyVariant::Versions,
-                    ],
-                    throttle_time_in_ms: 0,
-                })
-            }
+    impl super::WireSerialization for super::ApiVersions {
+        fn to_wire_format(&self, buffer: &mut Vec<u8>) -> () {
+            Result::<&super::ApiVersions, ErrorCode>::Ok(self).to_wire_format(buffer);
         }
     }
 
-    impl super::WireSerialization for Result<ApiVersionV4Response, ErrorCode> {
+    impl super::WireSerialization for Result<&super::ApiVersions, ErrorCode> {
+        // TODO: weird modeling, the ErrorCode leaks everywhere where it should not
         // https://kafka.apache.org/protocol#The_Messages_ApiVersions
         fn to_wire_format(&self, buffer: &mut Vec<u8>) -> () {
             match self {
@@ -54,33 +109,13 @@ pub mod api_versions {
 
 pub mod fetch {
     use bytes::BufMut;
-    #[derive(Debug)]
-    pub struct FetchV16Response {
-        throttle_time_in_ms: i32,
-        session_id: i32,
-        topics: Vec<FetchTopicResponse>,
-    }
-
-    impl FetchV16Response {
-        pub fn process_request(request: &super::FetchRequest) -> FetchV16Response {
-            FetchV16Response {
-                throttle_time_in_ms: 0,
-                session_id: 0,
-                topics: request
-                    .topics
-                    .iter()
-                    .map(|topic| FetchTopicResponse { topic_id: topic.id })
-                    .collect(),
-            }
-        }
-    }
 
     #[derive(Debug)]
     pub struct FetchTopicResponse {
-        topic_id: u128,
+        pub topic_id: u128,
     }
 
-    impl super::WireSerialization for FetchV16Response {
+    impl super::WireSerialization for super::Fetch {
         // https://kafka.apache.org/protocol.html#The_Messages_Fetch
         fn to_wire_format(&self, buffer: &mut Vec<u8>) -> () {
             buffer.put_i8(0); // no tagged fields null marker // TODO: this should not be here?
@@ -113,15 +148,19 @@ pub mod fetch {
 mod tests {
     use super::*;
     use crate::server::{model::Topic, ErrorCode};
-    use api_versions::ApiVersionV4Response;
 
     #[test]
     fn test_api_version_to_wire_format() {
         let mut buffer = vec![];
-        let response: Result<ApiVersionV4Response, ErrorCode> = Ok(ApiVersionV4Response {
-            api_key_versions: vec![super::ApiKeyVariant::Fetch, super::ApiKeyVariant::Versions],
+        let api_versions_response = ApiVersions {
+            api_key_versions: vec![
+                super::model::ApiKeyVariant::Fetch,
+                super::model::ApiKeyVariant::Versions,
+            ],
             throttle_time_in_ms: 0,
-        });
+        };
+
+        let response: Result<&ApiVersions, ErrorCode> = Ok(&api_versions_response);
         response.to_wire_format(&mut buffer);
 
         assert_eq!(
@@ -133,10 +172,19 @@ mod tests {
     #[test]
     fn test_fetch_response_to_wire_format() {
         let mut buffer = vec![];
-        let response = fetch::FetchV16Response::process_request(&FetchRequest {
-            session_id: 0,
-            topics: vec![Topic { id: 17 }],
-        });
+        let response = super::process_request(
+            &requests::Request::Fetch(requests::Fetch {
+                header: requests::RequestHeader {
+                    request_api_key: model::ApiKey::Fetch,
+                    request_api_version: 18,
+                    correlation_id: 42,
+                },
+                session_id: 0,
+                topics: vec![Topic { id: 17 }],
+            }),
+            ErrorCode::Ok,
+        )
+        .unwrap();
         response.to_wire_format(&mut buffer);
 
         assert_eq!(
