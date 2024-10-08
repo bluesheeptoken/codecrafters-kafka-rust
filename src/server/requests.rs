@@ -75,7 +75,6 @@ impl Request {
     }
 
     fn parse_fetch(header: RequestHeader, request: &mut Cursor<Vec<u8>>) -> Fetch {
-        dbg!(&header);
         let client_id_len = request.get_u16() as usize;
         request.advance(client_id_len);
         request.advance(1); // TAG_BUFFER
@@ -102,6 +101,7 @@ impl Request {
             session_id: session_id,
             topics: topics,
         };
+        dbg!(&request);
         request
     }
 

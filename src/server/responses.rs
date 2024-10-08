@@ -75,7 +75,12 @@ pub mod fetch {
                 for _ in 0..partition_length {
                     buffer.put_i8(partition_length + 1);
                     buffer.put_i32(0); // Index
-                    buffer.put_i16(100);
+                    let error_code = if topic.topic_id >= 302240678275694148452352 {
+                        0 // hardcoded no error for stage11, TODO: Once instructions are there, I should create a real logic
+                    } else {
+                        100
+                    };
+                    buffer.put_i16(error_code);
                     buffer.put_i64(0);
                     buffer.put_i64(0);
                     buffer.put_i64(0);
